@@ -1,0 +1,25 @@
+{
+  "name": "wbc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@adiwajshing/baileys": "^5.0.0",
+    "@azure/storage-blob": "^12.27.0",
+    "@google/generative-ai": "^0.21.0",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "formdata-node": "^6.0.3",
+    "generative-ai": "^0.1.4",
+    "node-fetch": "^2.7.0",
+    "optiic": "^1.0.1",
+    "pino": "^9.5.0"
+  }
+}
