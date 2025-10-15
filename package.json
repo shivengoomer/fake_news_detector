@@ -13,7 +13,7 @@
     "@adiwajshing/baileys": "^5.0.0",
     "@azure/storage-blob": "^12.27.0",
     "@google/generative-ai": "^0.21.0",
-    "@whiskeysockets/baileys": "^6.7.9",
+    "@whiskeysockets/baileys": "^7.0.0-rc.5",
     "axios": "^1.7.7",
     "dotenv": "^16.4.5",
     "formdata-node": "^6.0.3",

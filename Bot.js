@@ -195,13 +195,19 @@ class Bot {
 module.exports = Bot;*/
 
 const makeWASocket = require("@whiskeysockets/baileys").default;
-const { DisconnectReason, useMultiFileAuthState } = require("@whiskeysockets/baileys");
+const {
+  DisconnectReason,
+  useMultiFileAuthState,
+  Browsers,
+} = require("@whiskeysockets/baileys");
 const P = require("pino");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fetch = require("node-fetch");
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const Optiic = require("optiic");
-const { BlobServiceClient } = require('@azure/storage-blob');
+const { BlobServiceClient } = require("@azure/storage-blob");
+const NodeCache = require("node-cache");
+const qrcode = require("qrcode-terminal");
 
 class Bot {
   #socket;
@@ -229,49 +235,52 @@ class Bot {
 
     if (config.optiicApiKey) {
       this.#optiic = new Optiic({
-        apiKey: config.optiicApiKey
+        apiKey: config.optiicApiKey,
       });
     } else {
       console.warn("Optiic API key not provided. Media processing disabled.");
     }
 
-    this.#azureContainerName = config.azureContainerName || 'whatsapp-media';
+    this.#azureContainerName = config.azureContainerName || "whatsapp-media";
 
     if (config.azureConnectionString) {
       this.#blobServiceClient = BlobServiceClient.fromConnectionString(
-          config.azureConnectionString
+        config.azureConnectionString
       );
     } else {
-      console.warn('Azure Storage connection string not provided');
+      console.warn("Azure Storage connection string not provided");
     }
-
-
-
 
     if (config.genAIKey) {
       this.#genAI = new GoogleGenerativeAI(config.genAIKey);
     } else {
       console.warn("Google Generative AI API key not provided.");
     }
-
   }
-
-
 
   async connect() {
     const { state, saveCreds } = await useMultiFileAuthState(this.#authFolder);
     this.#saveCredentials = saveCreds;
+    const msgRetryCounterCache = new NodeCache();
 
     this.#socket = makeWASocket({
+      logger: P({ level: "silent" }),
       printQRInTerminal: true,
+      browser: Browsers.ubuntu("Firefox"),
       auth: state,
+      version: [2, 3000, 1028442591],
       getMessage: this.#getMessageFromStore,
-      logger: P({ level: "error" }),
       downloadHistory: false,
+      markOnlineOnConnect: true,
+      generateHighQualityLinkPreview: true,
+      emitOwnEvents: true,
+      msgRetryCounterCache,
+      defaultQueryTimeoutMs: undefined,
+      getMessage: async (key) => ({}),
     });
 
     this.#plugins.forEach((plugin) =>
-        plugin.init(this.#socket, this.#getText, this.#sendMessage)
+      plugin.init(this.#socket, this.#getText, this.#sendMessage)
     );
   }
 
@@ -279,21 +288,28 @@ class Bot {
     this.#socket.ev.process(async (events) => {
       if (events["connection.update"]) {
         const update = events["connection.update"];
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
-        if (connection === "close") {
+        if (qr) {
+          qrcode.generate(qr, { small: true });
+          console.log("📱 Scan the QR code above to log in.");
+        }
+
+        if (connection === "open") {
+          console.log("hnji");
+        } else if (connection === "close") {
           if (
-              lastDisconnect?.error?.output?.statusCode ===
-              DisconnectReason.loggedOut
+            lastDisconnect?.error?.output?.statusCode ===
+            DisconnectReason.loggedOut
           ) {
             console.log("Connection closed. You are logged out.");
           } else if (
-              lastDisconnect?.error?.output?.statusCode ===
-              DisconnectReason.timedOut
+            lastDisconnect?.error?.output?.statusCode ===
+            DisconnectReason.timedOut
           ) {
             console.log(
-                new Date().toLocaleTimeString(),
-                "Timed out. Will retry in 1 minute."
+              new Date().toLocaleTimeString(),
+              "Timed out. Will retry in 1 minute."
             );
             setTimeout(this.#restart.bind(this), 60 * 1000);
           } else {
@@ -336,49 +352,49 @@ class Bot {
 
   async #uploadMediaToAzure(mediaBuffer, mediaMimeType) {
     if (!this.#blobServiceClient) {
-      throw new Error('Azure Storage not configured');
+      throw new Error("Azure Storage not configured");
     }
 
     try {
-      const containerClient = this.#blobServiceClient.getContainerClient(this.#azureContainerName);
-      await containerClient.createIfNotExists({ access: 'blob' });
+      const containerClient = this.#blobServiceClient.getContainerClient(
+        this.#azureContainerName
+      );
+      await containerClient.createIfNotExists({ access: "blob" });
 
-      const blobName = `media-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      const blobName = `media-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
       const blobClient = containerClient.getBlockBlobClient(blobName);
 
       await blobClient.uploadData(mediaBuffer, {
         blobHTTPHeaders: {
           blobContentType: mediaMimeType,
-          blobContentDisposition: 'attachment'
-        }
+          blobContentDisposition: "attachment",
+        },
       });
 
-      console.log(blobClient.url)
+      console.log(blobClient.url);
 
       return blobClient.url;
     } catch (error) {
-      console.error('Azure upload failed:', error);
+      console.error("Azure upload failed:", error);
       throw error;
     }
   }
 
-
-
-
-
   async #processMediaWithOptiic(mediaUrl) {
     try {
-      console.log('Processing media URL with Optiic:', mediaUrl);
+      console.log("Processing media URL with Optiic:", mediaUrl);
       const result = await this.#optiic.process({
         url: mediaUrl,
         options: {
-          mode: 'ocr'
-        }
+          mode: "ocr",
+        },
       });
       return result.text;
     } catch (error) {
-      console.error('Optiic processing failed:', error);
-      return '';
+      console.error("Optiic processing failed:", error);
+      return "";
     }
   }
 
@@ -423,7 +439,7 @@ class Bot {
     }
 
     const apiUrl = `https://www.ipqualityscore.com/api/json/url/${
-        this.#ipqsApiKey
+      this.#ipqsApiKey
     }/${encodeURIComponent(url)}`;
 
     try {
@@ -434,14 +450,15 @@ class Bot {
         throw new Error(data.message || "IPQS API error");
       }
 
-      const isUnsafe = data.malicious ||
-          data.phishing ||
-          data.suspicious ||
-          data.risk_score >= 85;
+      const isUnsafe =
+        data.malicious ||
+        data.phishing ||
+        data.suspicious ||
+        data.risk_score >= 85;
 
       return {
         safe: !isUnsafe,
-        details: data
+        details: data,
       };
     } catch (error) {
       console.error("IPQS API Error:", error);
@@ -460,21 +477,30 @@ class Bot {
   }
 
   async #handleMediaAttachment(msg) {
-    if (!msg.message?.imageMessage && !msg.message?.videoMessage && !msg.message?.documentMessage) {
+    if (
+      !msg.message?.imageMessage &&
+      !msg.message?.videoMessage &&
+      !msg.message?.documentMessage
+    ) {
       return null;
     }
 
     try {
       const mediaBuffer = await downloadMediaMessage(msg, "buffer", {});
-      const mediaMimeType = msg.message.imageMessage?.mimetype ||
-          msg.message.videoMessage?.mimetype ||
-          msg.message.documentMessage?.mimetype;
-      const mediaName = `media_${Date.now()}.${mediaMimeType.split('/')[1]}`;
+      const mediaMimeType =
+        msg.message.imageMessage?.mimetype ||
+        msg.message.videoMessage?.mimetype ||
+        msg.message.documentMessage?.mimetype;
+      const mediaName = `media_${Date.now()}.${mediaMimeType.split("/")[1]}`;
 
-      return await this.#uploadMediaToAzure(mediaBuffer, mediaMimeType, mediaName);
+      return await this.#uploadMediaToAzure(
+        mediaBuffer,
+        mediaMimeType,
+        mediaName
+      );
     } catch (error) {
       console.error("Error handling media attachment:", error);
-      throw new Error('Failed to process media attachment: ' + error.message);
+      throw new Error("Failed to process media attachment: " + error.message);
     }
   }
 
@@ -484,24 +510,20 @@ class Bot {
 
     // Process media messages
 
-
-
-
-    if (message?.message && (
-        message.message.imageMessage ||
+    if (
+      message?.message &&
+      (message.message.imageMessage ||
         message.message.videoMessage ||
-        message.message.documentMessage
-    )) {
+        message.message.documentMessage)
+    ) {
       // Upload to Azure
       const mediaUrl = await this.#handleMediaAttachment(message);
-      console.log('Media uploaded to Azure:', mediaUrl);
+      console.log("Media uploaded to Azure:", mediaUrl);
 
       // Process with Optiic
       const extractedText = await this.#processMediaWithOptiic(mediaUrl);
-      text += ' ' + extractedText;
+      text += " " + extractedText;
     }
-
-
 
     // URL Safety Check
     const urls = this.#extractUrls(text);
@@ -512,32 +534,36 @@ class Bot {
 
           let responseText;
           if (!safetyResult.safe) {
-            responseText = `⚠️ *Dangerous Link Detected!* ⚠️\n` +
-                `URL: ${url}\n` +
-                `Risk Score: ${safetyResult.details.risk_score}/100\n` +
-                `Flags: ${this.#formatFlags(safetyResult.details)}`;
+            responseText =
+              `⚠️ *Dangerous Link Detected!* ⚠️\n` +
+              `URL: ${url}\n` +
+              `Risk Score: ${safetyResult.details.risk_score}/100\n` +
+              `Flags: ${this.#formatFlags(safetyResult.details)}`;
           } else {
-            responseText = `🔒 Safe Link\n` +
-                `URL: ${url}\n` +
-                `Risk Score: ${safetyResult.details.risk_score}/100`;
+            responseText =
+              `🔒 Safe Link\n` +
+              `URL: ${url}\n` +
+              `Risk Score: ${safetyResult.details.risk_score}/100`;
           }
 
           await this.#sendMessage(jid, { text: responseText });
         } catch (error) {
           await this.#sendMessage(jid, {
-            text: `❌ Error checking URL: ${url}\n${error.message}`
+            text: `❌ Error checking URL: ${url}\n${error.message}`,
           });
         }
       }
     }
 
     // Existing !ask command
-    if (text.startsWith("!ask")) {
+    if (text.startsWith("!assssk")) {
       const prompt = text.slice(5).trim();
 
       if (this.#genAI) {
         try {
-          const model = this.#genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const model = this.#genAI.getGenerativeModel({
+            model: "gemini-2.5-flash",
+          });
           const fakeNewsPrompt = `
        
         ## Fake News Detection Instructions:
@@ -574,7 +600,9 @@ class Bot {
           await this.#sendMessage(jid, { text: response });
         } catch (err) {
           console.error("Error generating content:", err);
-          await this.#sendMessage(jid, { text: "Sorry, I couldn't process that." });
+          await this.#sendMessage(jid, {
+            text: "Sorry, I couldn't process that.",
+          });
         }
       } else {
         await this.#sendMessage(jid, {

@@ -4,8 +4,6 @@ const Bot = require("./Bot");
 
 const { botConfig, pluginsConfig } = require("./config");
 
-
-
 const plugins = [
 
 
